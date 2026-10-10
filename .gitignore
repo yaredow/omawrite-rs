@@ -1,0 +1,21 @@
+# Rust / Cargo build artifacts
+/target/
+**/*.rs.bk
+
+# Direnv & Nix
+.direnv/
+.envrc.local
+result
+result-*
+
+# Editor & OS temporary files
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.iml
