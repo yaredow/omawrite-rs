@@ -46,3 +46,5 @@ src/
 3. **Draft Recovery**: Periodically write unsaved editor contents to `.omawrite~<hash>.draft` with an advisory lock file (`fd-lock`).
 4. **Clean Relm4 State**: Keep state in `AppModel`. UI events must flow through `AppMsg` variants rather than ad-hoc widget mutation callbacks where possible.
 5. **Zero Compiler Warnings**: All code changes must compile with `cargo check` cleanly without unused variables or deprecated functions.
+6. **Succinct Comments Only**: Do not write redundant or play-by-play comments (e.g., `// create the button`). Code should be self-documenting through clear naming and types. Only add brief, succinct comments when documenting non-obvious rationale, complex invariants, or critical API caveats.
+
