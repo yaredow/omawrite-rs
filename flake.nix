@@ -23,6 +23,7 @@
           ];
 
           buildInputs = with pkgs; [
+            gsettings-desktop-schemas
             glib
             gtk4
             libadwaita
@@ -37,6 +38,7 @@
           ];
 
           shellHook = ''
+            export XDG_DATA_DIRS="$GSETTINGS_SCHEMAS_PATH:$XDG_DATA_DIRS"
             export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (with pkgs; [
               libGL
               libxkbcommon

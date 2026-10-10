@@ -58,16 +58,10 @@ pub fn format_link(buffer: &sourceview5::Buffer, clipboard_url: Option<&str>) {
     wrap_selection(buffer, "[", &suffix, "link text");
 }
 
-fn wrap_selection(
-    buffer: &sourceview5::Buffer,
-    prefix: &str,
-    suffix: &str,
-    placeholder: &str,
-) {
+fn wrap_selection(buffer: &sourceview5::Buffer, prefix: &str, suffix: &str, placeholder: &str) {
     buffer.begin_user_action();
 
     if let Some((mut start, end)) = buffer.selection_bounds() {
-        // end_mark has right gravity (false) so inserting before it moves the mark forward
         let end_mark = buffer.create_mark(None, &end, false);
         let start_mark = buffer.create_mark(None, &start, true);
 
@@ -107,17 +101,78 @@ fn wrap_selection(
     buffer.end_user_action();
 }
 
+pub fn setup_search(
+    buffer: &sourceview5::Buffer,
+) -> (sourceview5::SearchSettings, sourceview5::SearchContext) {
+    let settings = sourceview5::SearchSettings::new();
+    settings.set_wrap_around(true);
+    settings.set_case_sensitive(false);
+
+    let context = sourceview5::SearchContext::new(buffer, Some(&settings));
+    context.set_highlight(true);
+
+    (settings, context)
+}
+
+pub fn find_next(
+    view: &sourceview5::View,
+    buffer: &sourceview5::Buffer,
+    context: &sourceview5::SearchContext,
+) {
+    let cursor_iter = if let Some((_, end)) = buffer.selection_bounds() {
+        end
+    } else {
+        buffer.iter_at_mark(&buffer.get_insert())
+    };
+
+    if let Some((mut match_start, match_end, _)) = context.forward(&cursor_iter) {
+        buffer.select_range(&match_end, &match_start);
+        view.scroll_to_iter(&mut match_start, 0.2, false, 0.0, 0.5);
+    }
+}
+
+pub fn find_prev(
+    view: &sourceview5::View,
+    buffer: &sourceview5::Buffer,
+    context: &sourceview5::SearchContext,
+) {
+    let cursor_iter = if let Some((start, _)) = buffer.selection_bounds() {
+        start
+    } else {
+        buffer.iter_at_mark(&buffer.get_insert())
+    };
+
+    if let Some((mut match_start, match_end, _)) = context.backward(&cursor_iter) {
+        buffer.select_range(&match_end, &match_start);
+        view.scroll_to_iter(&mut match_start, 0.2, false, 0.0, 0.5);
+    }
+}
+
+pub fn replace_current(
+    view: &sourceview5::View,
+    buffer: &sourceview5::Buffer,
+    context: &sourceview5::SearchContext,
+    replacement: &str,
+) {
+    if let Some((mut start, mut end)) = buffer.selection_bounds() {
+        let _ = context.replace(&mut start, &mut end, replacement);
+    }
+    find_next(view, buffer, context);
+}
+
+pub fn replace_all(context: &sourceview5::SearchContext, replacement: &str) {
+    let _ = context.replace_all(replacement);
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_markdown_formatting() {
+    fn test_editor_buffer_operations() {
         let _ = gtk4::init();
         let buffer = sourceview5::Buffer::new(None);
 
-        // 1. Test bold
         buffer.set_text("Hello world");
         let start = buffer.iter_at_offset(6);
         let end = buffer.iter_at_offset(11);
@@ -128,7 +183,6 @@ mod tests {
             "Hello **world**"
         );
 
-        // 2. Test italic
         buffer.set_text("Hello world");
         let start = buffer.iter_at_offset(0);
         let end = buffer.iter_at_offset(5);
@@ -137,6 +191,22 @@ mod tests {
         assert_eq!(
             buffer.text(&buffer.start_iter(), &buffer.end_iter(), false),
             "*Hello* world"
+        );
+
+        buffer.set_text("The quick brown fox jumps over the lazy dog");
+        let (settings, context) = setup_search(&buffer);
+        settings.set_search_text(Some("quick"));
+
+        let start_iter = buffer.start_iter();
+        let (mut match_start, mut match_end, _) = context.forward(&start_iter).unwrap();
+        assert_eq!(buffer.text(&match_start, &match_end, false), "quick");
+
+        context
+            .replace(&mut match_start, &mut match_end, "slow")
+            .unwrap();
+        assert_eq!(
+            buffer.text(&buffer.start_iter(), &buffer.end_iter(), false),
+            "The slow brown fox jumps over the lazy dog"
         );
     }
 }
