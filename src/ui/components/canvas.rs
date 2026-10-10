@@ -16,12 +16,21 @@ pub fn create_markdown_buffer(is_dark: bool) -> sourceview5::Buffer {
 
 pub fn apply_style_scheme(buffer: &sourceview5::Buffer, is_dark: bool) {
     let scheme_manager = sourceview5::StyleSchemeManager::default();
-    let scheme_id = if is_dark { "Adwaita-dark" } else { "Adwaita" };
+    let scheme_id = if is_dark {
+        "omawrite-dark"
+    } else {
+        "omawrite-light"
+    };
 
     if let Some(scheme) = scheme_manager.scheme(scheme_id) {
         buffer.set_style_scheme(Some(&scheme));
-    } else if let Some(fallback) = scheme_manager.scheme("classic") {
-        buffer.set_style_scheme(Some(&fallback));
+    } else {
+        let fallback_id = if is_dark { "Adwaita-dark" } else { "Adwaita" };
+        if let Some(fallback) = scheme_manager.scheme(fallback_id) {
+            buffer.set_style_scheme(Some(&fallback));
+        } else if let Some(classic) = scheme_manager.scheme("classic") {
+            buffer.set_style_scheme(Some(&classic));
+        }
     }
 }
 
@@ -164,44 +173,9 @@ pub fn replace_all(context: &sourceview5::SearchContext, replacement: &str) {
     let _ = context.replace_all(replacement);
 }
 
-pub fn count_words(text: &str) -> usize {
-    let mut count = 0;
-    let mut in_word = false;
-
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c.is_alphanumeric() {
-            if !in_word {
-                in_word = true;
-                count += 1;
-            }
-        } else if (c == '\'' || c == '-') && in_word {
-            if let Some(&next) = chars.peek() {
-                if !next.is_alphanumeric() {
-                    in_word = false;
-                }
-            } else {
-                in_word = false;
-            }
-        } else {
-            in_word = false;
-        }
-    }
-
-    count
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_word_count() {
-        assert_eq!(count_words(""), 0);
-        assert_eq!(count_words("Hello world"), 2);
-        assert_eq!(count_words("It's a state-of-the-art markdown editor."), 5);
-        assert_eq!(count_words("Word 123 another"), 3);
-    }
 
     #[test]
     fn test_editor_buffer_operations() {

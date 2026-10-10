@@ -1,11 +1,8 @@
-mod app;
-mod editor;
-mod storage;
-mod theme;
-mod watcher;
+mod core;
+mod ui;
 
-use app::AppModel;
 use relm4::RelmApp;
+use ui::app::AppModel;
 
 fn ensure_environment() {
     if std::env::var("_OMAWRITE_REEXEC").is_ok() {
@@ -82,7 +79,7 @@ fn ensure_environment() {
 fn main() {
     ensure_environment();
     let app = RelmApp::new("io.omacom.omawrite-rs");
-    theme::init_custom_styles();
+    ui::theme::init_custom_styles();
 
     let initial_path = std::env::args().nth(1).map(std::path::PathBuf::from);
     app.run::<AppModel>(initial_path);
