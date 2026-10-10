@@ -90,6 +90,28 @@ impl SimpleComponent for AppModel {
             gtk4::Box {
                 set_orientation: gtk4::Orientation::Vertical,
 
+                adw::HeaderBar {
+                    #[wrap(Some)]
+                    set_title_widget = &adw::WindowTitle {
+                        #[watch]
+                        set_title: &model.doc_title,
+                        #[watch]
+                        set_subtitle: if model.recovered_state {
+                            "Recovered"
+                        } else if model.modified {
+                            "Modified"
+                        } else {
+                            "Saved"
+                        },
+                    },
+
+                    pack_end = &gtk4::Button {
+                        set_icon_name: "edit-find-symbolic",
+                        set_tooltip_text: Some("Search & Replace (Ctrl+F)"),
+                        connect_clicked => AppMsg::SearchAction(SearchInput::ToggleSearch),
+                    },
+                },
+
                 #[local_ref]
                 search_widget -> gtk4::Revealer {},
 
