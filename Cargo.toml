@@ -1,0 +1,22 @@
+[package]
+name = "omawrite-rs"
+version = "0.1.0"
+edition = "2021"
+description = "A minimalist, distraction-free Markdown writing app"
+authors = ["yaredow"]
+
+[dependencies]
+# GUI framework
+relm4 = { version = "0.9", features = ["libadwaita"] }
+gtk4 = "0.9"
+libadwaita = "0.7"
+sourceview5 = "0.9"
+
+# File handling
+tempfile = "3.14"
+notify = "7"
+fd-lock = "4.0"
+
+# Async / Event utilities
+glib = "0.20"
+
