@@ -37,6 +37,10 @@ pub struct AppModel {
     pub recovery_scheduled: bool,
     pub recovered_state: bool,
     pub close_after_save: bool,
+    pub word_count: usize,
+    pub word_count_scheduled: bool,
+    pub status_message: String,
+    pub is_fullscreen: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -69,11 +73,14 @@ pub enum AppMsg {
     FindPrev,
     DoReplaceCurrent,
     DoReplaceAll,
+    UpdateWordCount,
+    ClearStatusMessage,
+    ToggleFullscreen,
 }
 
 #[relm4::component(pub)]
 impl SimpleComponent for AppModel {
-    type Init = ();
+    type Init = Option<PathBuf>;
     type Input = AppMsg;
     type Output = ();
 
@@ -209,12 +216,41 @@ impl SimpleComponent for AppModel {
                         editor_view -> sourceview5::View {},
                     },
                 },
+
+                // Footer Status Bar with Word Count
+                gtk4::Box {
+                    set_orientation: gtk4::Orientation::Horizontal,
+                    set_spacing: 12,
+                    add_css_class: "footer-bar",
+
+                    gtk4::Label {
+                        #[watch]
+                        set_text: &model.status_message,
+                        #[watch]
+                        set_visible: !model.status_message.is_empty(),
+                        add_css_class: "status-label",
+                    },
+
+                    gtk4::Box {
+                        set_hexpand: true,
+                    },
+
+                    gtk4::Label {
+                        #[watch]
+                        set_text: &format!(
+                            "{} {}",
+                            model.word_count,
+                            if model.word_count == 1 { "Word" } else { "Words" }
+                        ),
+                        add_css_class: "word-count",
+                    },
+                },
             },
         }
     }
 
     fn init(
-        _init: Self::Init,
+        init_path: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -308,6 +344,12 @@ impl SimpleComponent for AppModel {
             AppMsg::CloseSearch,
             sender.clone(),
         );
+        add_shortcut(
+            &shortcut_controller,
+            "F11",
+            AppMsg::ToggleFullscreen,
+            sender.clone(),
+        );
 
         root.add_controller(shortcut_controller);
 
@@ -320,13 +362,31 @@ impl SimpleComponent for AppModel {
         let mut file_path = None;
         let mut modified = false;
         let mut recovered_state = false;
+        let mut status_message = String::new();
 
-        if let Some(mgr) = &recovery_manager {
+        if let Some(path) = init_path {
+            if path.exists() {
+                if let Ok(content) = storage::load_file(&path) {
+                    editor_buffer.set_text(&content);
+                    let base_name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "document.md".to_string());
+                    status_message = format!("Loaded {}", base_name);
+                    file_path = Some(path);
+                    modified = false;
+                }
+            } else {
+                file_path = Some(path);
+                modified = true;
+            }
+        } else if let Some(mgr) = &recovery_manager {
             if let Some(snapshot) = &mgr.recovered_snapshot {
                 editor_buffer.set_text(&snapshot.text);
                 file_path = snapshot.file_path.clone();
                 modified = true;
                 recovered_state = true;
+                status_message = "Recovered unsaved changes".to_string();
             }
         }
 
@@ -350,6 +410,11 @@ impl SimpleComponent for AppModel {
             base_name
         );
         let doc_title = base_name;
+        let word_count = editor::count_words(&editor_buffer.text(
+            &editor_buffer.start_iter(),
+            &editor_buffer.end_iter(),
+            false,
+        ));
 
         let model = AppModel {
             editor_buffer,
@@ -372,6 +437,10 @@ impl SimpleComponent for AppModel {
             recovery_scheduled: false,
             recovered_state,
             close_after_save: false,
+            word_count,
+            word_count_scheduled: false,
+            status_message,
+            is_fullscreen: false,
         };
 
         let editor_view = &editor_view;
@@ -402,6 +471,18 @@ impl SimpleComponent for AppModel {
                     self.modified = true;
                     self.refresh_titles();
                 }
+
+                if !self.word_count_scheduled {
+                    self.word_count_scheduled = true;
+                    let sender_clone = sender.clone();
+                    glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(120),
+                        move || {
+                            sender_clone.input(AppMsg::UpdateWordCount);
+                        },
+                    );
+                }
+
                 if !self.recovery_scheduled {
                     self.recovery_scheduled = true;
                     let sender_clone = sender.clone();
@@ -411,6 +492,21 @@ impl SimpleComponent for AppModel {
                             sender_clone.input(AppMsg::AutoSaveRecoveryDraft);
                         },
                     );
+                }
+            }
+            AppMsg::UpdateWordCount => {
+                self.word_count_scheduled = false;
+                self.word_count = editor::count_words(&self.get_editor_text());
+            }
+            AppMsg::ClearStatusMessage => {
+                self.status_message.clear();
+            }
+            AppMsg::ToggleFullscreen => {
+                self.is_fullscreen = !self.is_fullscreen;
+                if self.is_fullscreen {
+                    self.window.fullscreen();
+                } else {
+                    self.window.unfullscreen();
                 }
             }
             AppMsg::AutoSaveRecoveryDraft => {
@@ -436,15 +532,21 @@ impl SimpleComponent for AppModel {
                 }
             }
             AppMsg::FileLoaded(path, content) => {
+                let base_name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "document.md".to_string());
                 self.editor_buffer.set_text(&content);
                 self.file_path = Some(path);
                 self.modified = false;
                 self.recovered_state = false;
+                self.word_count = editor::count_words(&content);
                 if let Some(mgr) = &self.recovery_manager {
                     mgr.clear();
                 }
                 self.watch_active_file(&sender);
                 self.refresh_titles();
+                self.set_transient_status(format!("Loaded {}", base_name), &sender);
             }
             AppMsg::SaveFile => {
                 if let Some(path) = self.file_path.clone() {
@@ -464,6 +566,10 @@ impl SimpleComponent for AppModel {
                 self.show_save_dialog(sender);
             }
             AppMsg::FileSaved(path) => {
+                let base_name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "document.md".to_string());
                 self.file_path = Some(path);
                 self.modified = false;
                 self.recovered_state = false;
@@ -472,6 +578,7 @@ impl SimpleComponent for AppModel {
                 }
                 self.watch_active_file(&sender);
                 self.refresh_titles();
+                self.set_transient_status(format!("Saved {}", base_name), &sender);
 
                 if self.close_after_save {
                     self.window.destroy();
@@ -598,6 +705,7 @@ impl SimpleComponent for AppModel {
                         self.editor_buffer.set_text(&content);
                         self.modified = false;
                         self.recovered_state = false;
+                        self.word_count = editor::count_words(&content);
                         if let Some(mgr) = &self.recovery_manager {
                             mgr.clear();
                         }
@@ -690,11 +798,21 @@ impl AppModel {
         self.file_path = None;
         self.modified = false;
         self.recovered_state = false;
+        self.word_count = 0;
+        self.status_message.clear();
         if let Some(mgr) = &self.recovery_manager {
             mgr.clear();
         }
         self.file_watcher.unwatch();
         self.refresh_titles();
+    }
+
+    fn set_transient_status(&mut self, msg: String, sender: &ComponentSender<Self>) {
+        self.status_message = msg;
+        let sender_clone = sender.clone();
+        glib::timeout_add_local_once(std::time::Duration::from_secs(4), move || {
+            sender_clone.input(AppMsg::ClearStatusMessage);
+        });
     }
 
     fn watch_active_file(&mut self, sender: &ComponentSender<Self>) {
