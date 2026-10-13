@@ -4,11 +4,14 @@ use relm4::prelude::*;
 use sourceview5::prelude::*;
 use std::path::PathBuf;
 
+use crate::core::config::{self, SidebarPosition};
 use crate::core::metrics;
+use crate::core::outline;
 use crate::core::storage;
 use crate::core::watcher;
 use crate::ui::components::canvas;
 use crate::ui::components::footer::{FooterInput, FooterModel};
+use crate::ui::components::outline::{OutlineInput, OutlineModel, OutlineOutput};
 use crate::ui::components::search::{SearchInput, SearchModel, SearchOutput};
 use crate::ui::dialogs;
 
@@ -39,6 +42,10 @@ pub struct AppModel {
 
     pub search_bar: Controller<SearchModel>,
     pub footer: Controller<FooterModel>,
+    pub outline_sidebar: Controller<OutlineModel>,
+    pub sidebar_visible: bool,
+    pub sidebar_position: SidebarPosition,
+    pub outline_scheduled: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -59,6 +66,12 @@ pub enum AppMsg {
     KeepLocalVersion,
     DiscardAndClose,
     ToggleFullscreen,
+
+    ToggleOutline,
+    UpdateOutline,
+    CheckCursorPosition,
+    OutlineAction(OutlineInput),
+    OutlineResult(OutlineOutput),
 
     SearchAction(SearchInput),
     SearchResult(SearchOutput),
@@ -110,21 +123,46 @@ impl SimpleComponent for AppModel {
                         set_tooltip_text: Some("Search & Replace (Ctrl+F)"),
                         connect_clicked => AppMsg::SearchAction(SearchInput::ToggleSearch),
                     },
+
+                    pack_end = &gtk4::Button {
+                        #[watch]
+                        set_icon_name: "view-list-bullet-symbolic",
+                        set_tooltip_text: Some("Document Outline (Ctrl+Shift+O)"),
+                        connect_clicked => AppMsg::ToggleOutline,
+                    },
                 },
 
                 #[local_ref]
                 search_widget -> gtk4::Revealer {},
 
-                gtk4::ScrolledWindow {
+                adw::OverlaySplitView {
                     set_hexpand: true,
                     set_vexpand: true,
+                    #[watch]
+                    set_show_sidebar: model.sidebar_visible,
+                    #[watch]
+                    set_sidebar_position: match model.sidebar_position {
+                        SidebarPosition::Left => gtk4::PackType::Start,
+                        SidebarPosition::Right => gtk4::PackType::End,
+                    },
+                    set_min_sidebar_width: 200.0,
+                    set_max_sidebar_width: 320.0,
+                    set_sidebar_width_fraction: 0.22,
 
-                    adw::Clamp {
-                        set_maximum_size: 780,
-                        set_tightening_threshold: 600,
+                    set_sidebar: Some(outline_widget),
 
-                        #[local_ref]
-                        editor_view -> sourceview5::View {},
+                    #[wrap(Some)]
+                    set_content = &gtk4::ScrolledWindow {
+                        set_hexpand: true,
+                        set_vexpand: true,
+
+                        adw::Clamp {
+                            set_maximum_size: 780,
+                            set_tightening_threshold: 600,
+
+                            #[local_ref]
+                            editor_view -> sourceview5::View {},
+                        },
                     },
                 },
 
@@ -236,8 +274,31 @@ impl SimpleComponent for AppModel {
             AppMsg::ToggleFullscreen,
             sender.clone(),
         );
+        add_shortcut(
+            &shortcut_controller,
+            "<Ctrl><Shift>o",
+            AppMsg::ToggleOutline,
+            sender.clone(),
+        );
+        add_shortcut(
+            &shortcut_controller,
+            "F9",
+            AppMsg::ToggleOutline,
+            sender.clone(),
+        );
+        add_shortcut(
+            &shortcut_controller,
+            "<Ctrl><Alt>o",
+            AppMsg::OutlineAction(OutlineInput::TogglePosition),
+            sender.clone(),
+        );
 
         root.add_controller(shortcut_controller);
+
+        let sender_for_cursor = sender.clone();
+        editor_buffer.connect_cursor_position_notify(move |_| {
+            sender_for_cursor.input(AppMsg::CheckCursorPosition);
+        });
 
         let sender_for_theme = sender.clone();
         style_manager.connect_dark_notify(move |manager| {
@@ -251,6 +312,15 @@ impl SimpleComponent for AppModel {
 
         let footer = FooterModel::builder().launch(()).detach();
         let footer_widget = footer.widget().clone();
+
+        let cfg = config::load_config();
+        let sidebar_position = cfg.sidebar_position;
+        let sidebar_visible = cfg.sidebar_visible;
+
+        let outline_sidebar = OutlineModel::builder()
+            .launch(sidebar_position)
+            .forward(sender.input_sender(), AppMsg::OutlineResult);
+        let outline_widget = outline_sidebar.widget().clone();
 
         let recovery_manager = storage::RecoveryManager::new();
 
@@ -305,12 +375,16 @@ impl SimpleComponent for AppModel {
             " - Omawrite"
         );
 
-        let initial_words = metrics::count_words(&editor_buffer.text(
+        let initial_text = editor_buffer.text(
             &editor_buffer.start_iter(),
             &editor_buffer.end_iter(),
             false,
-        ));
+        );
+        let initial_words = metrics::count_words(&initial_text);
         footer.emit(FooterInput::SetWordCount(initial_words));
+
+        let initial_headings = outline::extract_headings(&initial_text);
+        outline_sidebar.emit(OutlineInput::SetHeadings(initial_headings));
 
         let model = Self {
             editor_buffer,
@@ -331,8 +405,13 @@ impl SimpleComponent for AppModel {
             close_after_save: false,
             search_bar,
             footer,
+            outline_sidebar,
+            sidebar_visible,
+            sidebar_position,
+            outline_scheduled: false,
         };
 
+        let outline_widget = &outline_widget;
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
@@ -360,6 +439,17 @@ impl SimpleComponent for AppModel {
                         std::time::Duration::from_millis(120),
                         move || {
                             sender_for_metrics.input(AppMsg::UpdateWordCount);
+                        },
+                    );
+                }
+
+                if !self.outline_scheduled {
+                    self.outline_scheduled = true;
+                    let sender_for_outline = sender.clone();
+                    glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(200),
+                        move || {
+                            sender_for_outline.input(AppMsg::UpdateOutline);
                         },
                     );
                 }
@@ -422,6 +512,9 @@ impl SimpleComponent for AppModel {
                 }
             }
             AppMsg::FileLoaded(path, content) => {
+                let headings = outline::extract_headings(&content);
+                self.outline_sidebar
+                    .emit(OutlineInput::SetHeadings(headings));
                 self.editor_buffer.set_text(&content);
                 self.file_path = Some(path);
                 self.modified = false;
@@ -549,6 +642,9 @@ impl SimpleComponent for AppModel {
                 self.external_dialog_open = false;
                 if let Some(path) = self.file_path.clone() {
                     if let Ok(content) = storage::load_file(&path) {
+                        let headings = outline::extract_headings(&content);
+                        self.outline_sidebar
+                            .emit(OutlineInput::SetHeadings(headings));
                         self.editor_buffer.set_text(&content);
                         self.modified = false;
                         self.recovered_state = false;
@@ -572,6 +668,43 @@ impl SimpleComponent for AppModel {
                 self.modified = true;
                 self.refresh_titles();
             }
+            AppMsg::ToggleOutline => {
+                self.sidebar_visible = !self.sidebar_visible;
+                let mut config = config::load_config();
+                config.sidebar_visible = self.sidebar_visible;
+                config::save_config(&config);
+            }
+            AppMsg::UpdateOutline => {
+                self.outline_scheduled = false;
+                let text = self.get_editor_text();
+                let headings = outline::extract_headings(&text);
+                self.outline_sidebar
+                    .emit(OutlineInput::SetHeadings(headings));
+            }
+            AppMsg::CheckCursorPosition => {
+                let line = canvas::current_cursor_line(&self.editor_buffer);
+                self.outline_sidebar.emit(OutlineInput::SetActiveLine(line));
+            }
+            AppMsg::OutlineAction(action) => {
+                self.outline_sidebar.emit(action);
+            }
+            AppMsg::OutlineResult(result) => match result {
+                OutlineOutput::JumpToLine(line) => {
+                    canvas::scroll_to_line(&self.editor_view, &self.editor_buffer, line);
+                }
+                OutlineOutput::PositionChanged(pos) => {
+                    self.sidebar_position = pos;
+                    let mut config = config::load_config();
+                    config.sidebar_position = pos;
+                    config::save_config(&config);
+                }
+                OutlineOutput::CloseRequested => {
+                    self.sidebar_visible = false;
+                    let mut config = config::load_config();
+                    config.sidebar_visible = false;
+                    config::save_config(&config);
+                }
+            },
             AppMsg::SearchAction(action) => {
                 self.search_bar.emit(action);
             }
@@ -633,6 +766,8 @@ impl AppModel {
         self.recovered_state = false;
         self.footer.emit(FooterInput::SetWordCount(0));
         self.footer.emit(FooterInput::SetStatus(String::new()));
+        self.outline_sidebar
+            .emit(OutlineInput::SetHeadings(Vec::new()));
         if let Some(mgr) = &self.recovery_manager {
             mgr.clear();
         }

@@ -173,6 +173,19 @@ pub fn replace_all(context: &sourceview5::SearchContext, replacement: &str) {
     let _ = context.replace_all(replacement);
 }
 
+pub fn scroll_to_line(view: &sourceview5::View, buffer: &sourceview5::Buffer, line: u32) {
+    if let Some(mut iter) = buffer.iter_at_line(line as i32) {
+        buffer.place_cursor(&iter);
+        view.scroll_to_iter(&mut iter, 0.1, false, 0.0, 0.2);
+        view.grab_focus();
+    }
+}
+
+pub fn current_cursor_line(buffer: &sourceview5::Buffer) -> u32 {
+    let iter = buffer.iter_at_mark(&buffer.get_insert());
+    iter.line() as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -29,6 +29,45 @@ fn init_css() {
             font-family: 'IBM Plex Mono', 'monospace';
             font-feature-settings: 'tnum';
         }
+        .outline-sidebar-panel {
+            background-color: alpha(currentColor, 0.025);
+            font-family: 'IBM Plex Mono', 'monospace';
+        }
+        .outline-title-label {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            opacity: 0.55;
+        }
+        .outline-listbox {
+            background: transparent;
+            padding: 4px;
+        }
+        .outline-row {
+            border-radius: 6px;
+            padding: 1px 2px;
+            transition: background 120ms ease;
+        }
+        .outline-row:hover {
+            background-color: alpha(currentColor, 0.06);
+        }
+        .active-outline-row {
+            background-color: alpha(@accent_color, 0.15);
+            color: @accent_color;
+        }
+        .outline-h1 {
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .outline-hn {
+            font-size: 12.5px;
+            opacity: 0.85;
+        }
+        .outline-empty-heading {
+            font-size: 13px;
+            font-weight: 600;
+            opacity: 0.7;
+        }
         ",
     );
 
