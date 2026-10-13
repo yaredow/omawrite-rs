@@ -69,9 +69,11 @@ pub enum AppMsg {
     ToggleFullscreen,
 
     ToggleOutline,
+    SetSidebarVisible(bool),
+    SetSidebarPosition(SidebarPosition),
+    ToggleSidebarPosition,
     UpdateOutline,
     CheckCursorPosition,
-    OutlineAction(OutlineInput),
     OutlineResult(OutlineOutput),
 
     SearchAction(SearchInput),
@@ -125,11 +127,85 @@ impl SimpleComponent for AppModel {
                         connect_clicked => AppMsg::SearchAction(SearchInput::ToggleSearch),
                     },
 
-                    pack_end = &gtk4::Button {
-                        #[watch]
+                    pack_end = &gtk4::MenuButton {
                         set_icon_name: "view-list-bullet-symbolic",
                         set_tooltip_text: Some("Document Outline (Ctrl+Shift+O)"),
-                        connect_clicked => AppMsg::ToggleOutline,
+                        set_always_show_arrow: true,
+
+                        #[wrap(Some)]
+                        set_popover = &gtk4::Popover {
+                            gtk4::Box {
+                                set_orientation: gtk4::Orientation::Vertical,
+                                set_spacing: 10,
+                                set_margin_start: 14,
+                                set_margin_end: 14,
+                                set_margin_top: 12,
+                                set_margin_bottom: 12,
+
+                                // Row 1: Document Outline toggle switch
+                                gtk4::Box {
+                                    set_orientation: gtk4::Orientation::Horizontal,
+                                    set_spacing: 16,
+
+                                    gtk4::Label {
+                                        set_label: "Document Outline",
+                                        set_hexpand: true,
+                                        set_xalign: 0.0,
+                                    },
+
+                                    gtk4::Switch {
+                                        #[watch]
+                                        set_active: model.sidebar_visible,
+                                        connect_state_set[sender] => move |_, state| {
+                                            sender.input(AppMsg::SetSidebarVisible(state));
+                                            glib::Propagation::Stop
+                                        },
+                                    },
+                                },
+
+                                gtk4::Separator {
+                                    set_orientation: gtk4::Orientation::Horizontal,
+                                },
+
+                                // Row 2: Position toggle
+                                gtk4::Box {
+                                    set_orientation: gtk4::Orientation::Horizontal,
+                                    set_spacing: 16,
+
+                                    gtk4::Label {
+                                        set_label: "Position",
+                                        set_hexpand: true,
+                                        set_xalign: 0.0,
+                                    },
+
+                                    gtk4::Box {
+                                        add_css_class: "linked",
+
+                                        gtk4::ToggleButton {
+                                            set_label: "Left",
+                                            #[watch]
+                                            set_active: model.sidebar_position == SidebarPosition::Left,
+                                            connect_toggled[sender] => move |btn| {
+                                                if btn.is_active() {
+                                                    sender.input(AppMsg::SetSidebarPosition(SidebarPosition::Left));
+                                                }
+                                            },
+                                        },
+
+                                        gtk4::ToggleButton {
+                                            set_label: "Right",
+                                            #[watch]
+                                            set_active: model.sidebar_position == SidebarPosition::Right,
+                                            connect_toggled[sender] => move |btn| {
+                                                if btn.is_active() {
+                                                    sender.input(AppMsg::SetSidebarPosition(SidebarPosition::Right));
+                                                }
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
 
@@ -291,7 +367,7 @@ impl SimpleComponent for AppModel {
         add_shortcut(
             &shortcut_controller,
             "<Ctrl><Alt>o",
-            AppMsg::OutlineAction(OutlineInput::TogglePosition),
+            AppMsg::ToggleSidebarPosition,
             sender.clone(),
         );
 
@@ -672,10 +748,28 @@ impl SimpleComponent for AppModel {
                 self.refresh_titles();
             }
             AppMsg::ToggleOutline => {
-                self.sidebar_visible = !self.sidebar_visible;
+                let new_visible = !self.sidebar_visible;
+                sender.input(AppMsg::SetSidebarVisible(new_visible));
+            }
+            AppMsg::SetSidebarVisible(visible) => {
+                self.sidebar_visible = visible;
                 let mut config = config::load_config();
-                config.sidebar_visible = self.sidebar_visible;
+                config.sidebar_visible = visible;
                 config::save_config(&config);
+            }
+            AppMsg::SetSidebarPosition(pos) => {
+                self.sidebar_position = pos;
+                self.outline_sidebar.emit(OutlineInput::SetPosition(pos));
+                let mut config = config::load_config();
+                config.sidebar_position = pos;
+                config::save_config(&config);
+            }
+            AppMsg::ToggleSidebarPosition => {
+                let new_pos = match self.sidebar_position {
+                    SidebarPosition::Left => SidebarPosition::Right,
+                    SidebarPosition::Right => SidebarPosition::Left,
+                };
+                sender.input(AppMsg::SetSidebarPosition(new_pos));
             }
             AppMsg::UpdateOutline => {
                 self.outline_scheduled = false;
@@ -688,18 +782,9 @@ impl SimpleComponent for AppModel {
                 let line = canvas::current_cursor_line(&self.editor_buffer);
                 self.outline_sidebar.emit(OutlineInput::SetActiveLine(line));
             }
-            AppMsg::OutlineAction(action) => {
-                self.outline_sidebar.emit(action);
-            }
             AppMsg::OutlineResult(result) => match result {
                 OutlineOutput::JumpToLine(line) => {
                     canvas::scroll_to_line(&self.editor_view, &self.editor_buffer, line);
-                }
-                OutlineOutput::PositionChanged(pos) => {
-                    self.sidebar_position = pos;
-                    let mut config = config::load_config();
-                    config.sidebar_position = pos;
-                    config::save_config(&config);
                 }
                 OutlineOutput::CloseRequested => {
                     self.sidebar_visible = false;

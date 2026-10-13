@@ -16,14 +16,13 @@ pub enum OutlineInput {
     SetHeadings(Vec<HeadingItem>),
     SetActiveLine(u32),
     RowActivated(usize),
-    TogglePosition,
+    SetPosition(SidebarPosition),
     Close,
 }
 
 #[derive(Clone, Debug)]
 pub enum OutlineOutput {
     JumpToLine(u32),
-    PositionChanged(SidebarPosition),
     CloseRequested,
 }
 
@@ -58,21 +57,10 @@ impl SimpleComponent for OutlineModel {
                 gtk4::Button {
                     #[watch]
                     set_icon_name: match model.position {
-                        SidebarPosition::Right => "go-previous-symbolic",
-                        SidebarPosition::Left => "go-next-symbolic",
+                        SidebarPosition::Right => "go-next-symbolic",
+                        SidebarPosition::Left => "go-previous-symbolic",
                     },
-                    #[watch]
-                    set_tooltip_text: match model.position {
-                        SidebarPosition::Right => Some("Move to Left (Ctrl+Alt+O)"),
-                        SidebarPosition::Left => Some("Move to Right (Ctrl+Alt+O)"),
-                    },
-                    add_css_class: "flat",
-                    connect_clicked => OutlineInput::TogglePosition,
-                },
-
-                gtk4::Button {
-                    set_icon_name: "window-close-symbolic",
-                    set_tooltip_text: Some("Close (Ctrl+Shift+O)"),
+                    set_tooltip_text: Some("Close Outline (Ctrl+Shift+O)"),
                     add_css_class: "flat",
                     connect_clicked => OutlineInput::Close,
                 },
@@ -173,12 +161,8 @@ impl SimpleComponent for OutlineModel {
                     let _ = sender.output(OutlineOutput::JumpToLine(heading.line));
                 }
             }
-            OutlineInput::TogglePosition => {
-                self.position = match self.position {
-                    SidebarPosition::Left => SidebarPosition::Right,
-                    SidebarPosition::Right => SidebarPosition::Left,
-                };
-                let _ = sender.output(OutlineOutput::PositionChanged(self.position));
+            OutlineInput::SetPosition(pos) => {
+                self.position = pos;
             }
             OutlineInput::Close => {
                 let _ = sender.output(OutlineOutput::CloseRequested);
