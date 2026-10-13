@@ -10,10 +10,33 @@ fn init_css() {
     let provider = gtk4::CssProvider::new();
     provider.load_from_data(
         "
-        textview {
+        /* Make the writing field, margins, and sidebar seamless with the window theme */
+        textview,
+        textview text,
+        sourceview,
+        sourceview text,
+        .editor-canvas,
+        .editor-canvas text {
+            background-color: transparent;
+            background: transparent;
             font-family: 'IBM Plex Mono', 'monospace';
             font-size: 15px;
             line-height: 1.5;
+        }
+        scrolledwindow,
+        scrolledwindow > viewport,
+        adw-clamp {
+            background-color: transparent;
+            background: transparent;
+        }
+        splitview > .sidebar,
+        overlaysplitview > .sidebar,
+        .outline-sidebar-panel {
+            background-color: transparent;
+            background: transparent;
+            font-family: 'IBM Plex Mono', 'monospace';
+            border-left: 1px solid alpha(currentColor, 0.07);
+            border-right: 1px solid alpha(currentColor, 0.07);
         }
         .footer-bar {
             padding: 6px 18px;
@@ -28,10 +51,6 @@ fn init_css() {
             opacity: 0.7;
             font-family: 'IBM Plex Mono', 'monospace';
             font-feature-settings: 'tnum';
-        }
-        .outline-sidebar-panel {
-            background-color: alpha(currentColor, 0.025);
-            font-family: 'IBM Plex Mono', 'monospace';
         }
         .outline-title-label {
             font-size: 11px;
@@ -83,18 +102,24 @@ fn init_css() {
 fn init_style_schemes() {
     let styles_dir: PathBuf = glib::user_data_dir().join("omawrite-rs").join("styles");
     if fs::create_dir_all(&styles_dir).is_ok() {
-        let dark_scheme = r#"<?xml version="1.0" encoding="UTF-8"?>
+        let dark_scheme = r##"<?xml version="1.0" encoding="UTF-8"?>
 <style-scheme id="omawrite-dark" _name="Omawrite Dark" version="1.0" parent-scheme="Adwaita-dark">
+  <color name="transparent" value="#00000000"/>
+  <style name="text" background="transparent"/>
+  <style name="current-line" background="transparent"/>
   <style name="def:heading" scale="1.3" bold="true"/>
   <style name="markdown:header" scale="1.3" bold="true"/>
 </style-scheme>
-"#;
-        let light_scheme = r#"<?xml version="1.0" encoding="UTF-8"?>
+"##;
+        let light_scheme = r##"<?xml version="1.0" encoding="UTF-8"?>
 <style-scheme id="omawrite-light" _name="Omawrite Light" version="1.0" parent-scheme="Adwaita">
+  <color name="transparent" value="#00000000"/>
+  <style name="text" background="transparent"/>
+  <style name="current-line" background="transparent"/>
   <style name="def:heading" scale="1.3" bold="true"/>
   <style name="markdown:header" scale="1.3" bold="true"/>
 </style-scheme>
-"#;
+"##;
 
         let _ = fs::write(styles_dir.join("omawrite-dark.xml"), dark_scheme);
         let _ = fs::write(styles_dir.join("omawrite-light.xml"), light_scheme);
