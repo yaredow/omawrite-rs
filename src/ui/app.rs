@@ -14,6 +14,7 @@ use crate::ui::components::footer::{FooterInput, FooterModel};
 use crate::ui::components::outline::{OutlineInput, OutlineModel, OutlineOutput};
 use crate::ui::components::search::{SearchInput, SearchModel, SearchOutput};
 use crate::ui::dialogs;
+use crate::ui::theme;
 
 #[derive(Clone, Debug)]
 pub enum PendingAction {
@@ -457,6 +458,7 @@ impl SimpleComponent for AppModel {
             AppMsg::ThemeChanged(is_dark) => {
                 self.is_dark = is_dark;
                 canvas::apply_style_scheme(&self.editor_buffer, is_dark);
+                theme::apply_theme_mode(is_dark);
             }
             AppMsg::UpdateWordCount => {
                 let text = self.get_editor_text();

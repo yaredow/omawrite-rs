@@ -1,46 +1,109 @@
+use relm4::adw;
+use std::cell::RefCell;
 use std::fs;
 use std::path::PathBuf;
+
+thread_local! {
+    static THEME_PROVIDER: RefCell<Option<gtk4::CssProvider>> = const { RefCell::new(None) };
+}
 
 pub fn init_custom_styles() {
     init_css();
     init_style_schemes();
+    let is_dark = adw::StyleManager::default().is_dark();
+    apply_theme_mode(is_dark);
+}
+
+pub fn apply_theme_mode(is_dark: bool) {
+    THEME_PROVIDER.with(|cell| {
+        let mut opt = cell.borrow_mut();
+        let provider = opt.get_or_insert_with(|| {
+            let p = gtk4::CssProvider::new();
+            if let Some(display) = gtk4::gdk::Display::default() {
+                gtk4::style_context_add_provider_for_display(
+                    &display,
+                    &p,
+                    gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION + 10,
+                );
+            }
+            p
+        });
+
+        let bg = if is_dark { "#1e1e1e" } else { "#ffffff" };
+        let text_color = if is_dark { "#dedede" } else { "#222222" };
+        let border = if is_dark {
+            "rgba(255, 255, 255, 0.08)"
+        } else {
+            "rgba(0, 0, 0, 0.08)"
+        };
+
+        provider.load_from_data(&format!(
+            "
+            @define-color window_bg_color {bg};
+            @define-color window_fg_color {text_color};
+            @define-color view_bg_color {bg};
+            @define-color view_fg_color {text_color};
+            @define-color headerbar_bg_color {bg};
+            @define-color headerbar_fg_color {text_color};
+            @define-color sidebar_bg_color {bg};
+            @define-color sidebar_fg_color {text_color};
+            @define-color secondary_sidebar_bg_color {bg};
+            @define-color secondary_sidebar_fg_color {text_color};
+
+            window,
+            .background,
+            adw-application-window,
+            headerbar,
+            .search-bar,
+            scrolledwindow,
+            scrolledwindow > viewport,
+            adw-clamp,
+            textview,
+            textview text,
+            sourceview,
+            sourceview text,
+            .editor-canvas,
+            .editor-canvas text,
+            splitview > .sidebar,
+            overlaysplitview > .sidebar,
+            .outline-sidebar-panel,
+            .footer-bar {{
+                background-color: {bg};
+                background: {bg};
+                color: {text_color};
+            }}
+            .search-bar {{
+                padding: 6px 14px;
+                border-bottom: 1px solid {border};
+            }}
+            .outline-sidebar-panel {{
+                border-left: 1px solid {border};
+                border-right: 1px solid {border};
+            }}
+            .footer-bar {{
+                border-top: 1px solid {border};
+            }}
+            "
+        ));
+    });
 }
 
 fn init_css() {
     let provider = gtk4::CssProvider::new();
     provider.load_from_data(
         "
-        /* Make the writing field, margins, and sidebar seamless with the window theme */
         textview,
         textview text,
         sourceview,
         sourceview text,
         .editor-canvas,
         .editor-canvas text {
-            background-color: transparent;
-            background: transparent;
             font-family: 'IBM Plex Mono', 'monospace';
             font-size: 15px;
             line-height: 1.5;
         }
-        scrolledwindow,
-        scrolledwindow > viewport,
-        adw-clamp {
-            background-color: transparent;
-            background: transparent;
-        }
-        splitview > .sidebar,
-        overlaysplitview > .sidebar,
-        .outline-sidebar-panel {
-            background-color: transparent;
-            background: transparent;
-            font-family: 'IBM Plex Mono', 'monospace';
-            border-left: 1px solid alpha(currentColor, 0.07);
-            border-right: 1px solid alpha(currentColor, 0.07);
-        }
         .footer-bar {
             padding: 6px 18px;
-            border-top: 1px solid alpha(currentColor, 0.07);
             font-size: 12px;
         }
         .status-label {
@@ -51,6 +114,9 @@ fn init_css() {
             opacity: 0.7;
             font-family: 'IBM Plex Mono', 'monospace';
             font-feature-settings: 'tnum';
+        }
+        .outline-sidebar-panel {
+            font-family: 'IBM Plex Mono', 'monospace';
         }
         .outline-title-label {
             font-size: 11px;
@@ -104,18 +170,16 @@ fn init_style_schemes() {
     if fs::create_dir_all(&styles_dir).is_ok() {
         let dark_scheme = r##"<?xml version="1.0" encoding="UTF-8"?>
 <style-scheme id="omawrite-dark" _name="Omawrite Dark" version="1.0" parent-scheme="Adwaita-dark">
-  <color name="transparent" value="#00000000"/>
-  <style name="text" background="transparent"/>
-  <style name="current-line" background="transparent"/>
+  <style name="text" background="#1e1e1e" foreground="#dedede"/>
+  <style name="current-line" background="#262626"/>
   <style name="def:heading" scale="1.3" bold="true"/>
   <style name="markdown:header" scale="1.3" bold="true"/>
 </style-scheme>
 "##;
         let light_scheme = r##"<?xml version="1.0" encoding="UTF-8"?>
 <style-scheme id="omawrite-light" _name="Omawrite Light" version="1.0" parent-scheme="Adwaita">
-  <color name="transparent" value="#00000000"/>
-  <style name="text" background="transparent"/>
-  <style name="current-line" background="transparent"/>
+  <style name="text" background="#ffffff" foreground="#222222"/>
+  <style name="current-line" background="#f5f5f5"/>
   <style name="def:heading" scale="1.3" bold="true"/>
   <style name="markdown:header" scale="1.3" bold="true"/>
 </style-scheme>
