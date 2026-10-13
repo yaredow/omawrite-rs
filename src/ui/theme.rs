@@ -1,9 +1,52 @@
+use relm4::adw;
+use std::cell::RefCell;
 use std::fs;
 use std::path::PathBuf;
+
+thread_local! {
+    static EDITOR_THEME_PROVIDER: RefCell<Option<gtk4::CssProvider>> = const { RefCell::new(None) };
+}
 
 pub fn init_custom_styles() {
     init_css();
     init_style_schemes();
+    let is_dark = adw::StyleManager::default().is_dark();
+    apply_editor_theme(is_dark);
+}
+
+pub fn apply_editor_theme(is_dark: bool) {
+    EDITOR_THEME_PROVIDER.with(|cell| {
+        let mut opt = cell.borrow_mut();
+        let provider = opt.get_or_insert_with(|| {
+            let p = gtk4::CssProvider::new();
+            if let Some(display) = gtk4::gdk::Display::default() {
+                gtk4::style_context_add_provider_for_display(
+                    &display,
+                    &p,
+                    gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION + 5,
+                );
+            }
+            p
+        });
+
+        let bg = if is_dark { "#1d1d20" } else { "#ffffff" };
+        provider.load_from_data(&format!(
+            "
+            .editor-scroll-area,
+            .editor-scroll-area > viewport,
+            .editor-scroll-area adw-clamp,
+            .editor-scroll-area textview,
+            .editor-scroll-area textview text,
+            .editor-scroll-area sourceview,
+            .editor-scroll-area sourceview text,
+            .editor-canvas,
+            .editor-canvas text {{
+                background-color: {bg};
+                background: {bg};
+            }}
+            "
+        ));
+    });
 }
 
 fn init_css() {
